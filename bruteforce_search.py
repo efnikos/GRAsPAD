@@ -288,7 +288,8 @@ def objective_function_with_kalman(params):
     
     
     # division-based log form
-    info_gain = abs(0.5 * np.log(det_prior/det_post))#because cmaes minimizes
+    #info_gain = abs(np.log(det_prior/det_post))#because cmaes minimizes
+    info_gain = np.log((det_prior/det_post))#because cmaes minimizes
     rewrd = info_gain
     # rewrd= np.linalg.det(P)
     return rewrd
@@ -729,11 +730,9 @@ if __name__ == "__main__":
     phi0   = np.pi/6
     
     theta0 = np.pi/3
-    
-    # dt        = 0.003      # 
-    # seg_time  =0.8       # point to point movement
-    dt        = 0.02     # 
-    seg_time  =5     # move time operator
+  
+    dt        = 0.02     # 20 ms ()
+    seg_time  =5     # time (sec) for point to point movement with quintic (5th order) profile
 
     time_now  = 0.0
     duration = seg_time #seconds
@@ -766,12 +765,14 @@ if __name__ == "__main__":
    
     # Define ranges for phi and theta for different starting points of camera!!!!
 
-    # phi_range = np.linspace(np.pi / 5, np.pi / 3, 2)   
-    # theta_range = np.linspace(0.0, 2 * np.pi - (1/5)* 2 * np.pi, 25)
-    # phi_grid, theta_grid = np.meshgrid(phi_range, theta_range)
+    # phi_range = np.linspace(np.pi / 5, np.pi / 3, 7)   
+    # theta_range = np.linspace(0.0, 2 * np.pi - (1/5)* 2 * np.pi, 7)
+    phi_range = np.linspace(np.pi/8,np.pi/2-0.3, 7)   
+    theta_range = np.linspace(np.pi/8,np.pi/2-0.3, 7)
+    phi_grid, theta_grid = np.meshgrid(phi_range, theta_range)
 
-    # phi_combinations = phi_grid.flatten()
-    # theta_combinations = theta_grid.flatten()
+    phi_combinations = phi_grid.flatten()
+    theta_combinations = theta_grid.flatten()
 
     # CMA-ES Optimization with Multiple Experiments
 
@@ -779,16 +780,11 @@ if __name__ == "__main__":
     input('When UR ready :)...please press "Enter"...')
 
     
-
-    num_of_experiments = 1#len(phi_combinations)
-
-
-    # for exper in range(num_of_experiments):
     initial_parameters = np.array([phi0,theta0])
     cma_bounds = np.array([[np.pi/8,np.pi/2-0.3], [np.pi/8,np.pi/2-0.3]])
     steps = np.zeros(2)  # Continuous dimensions only
 
-    population_size =10
+    population_size =5
     optimizer = CMAwM(
         mean=initial_parameters,
         sigma=2,#1000.0,
@@ -801,135 +797,116 @@ if __name__ == "__main__":
     all_desired_positions = [p_init_robot]
     best_experiment_value = -np.Inf
     best_experiment_params = None
-
-
-    x_cur=initial_parameters
-
-    # --- Optimization Loop ---
-
+    num_of_experiments = len(phi_combinations)
     best_results =[]
     step_count = 0
 
-    for i in range (1): # Ektelw 2 epochs (h alliws iterations)
-        solutions = [] 
-        solutions_for_cma_manipulation  = [] 
-    # 7) Κυρίως βρόχος μέχρι total_time
-        for its in range(population_size): #----------------
-            if (not stop_signal):
-                # 1) Ζητάς μια νέα υποψήφια λύση από το CMA-ES
-                
-                x_for_eval, x_for_tell = optimizer.ask()
-                print(x_for_eval)
-                phi1 = x_for_eval[0]
-                theta1 = x_for_eval[1]
-        
-                
-                # Reset simulation time, if applicable
-                t_local = 0.0
-                t_start = rtde_c.initPeriod()
-                while t_local < seg_time and not stop_signal:
-                   
-                    time_start = time.time()
-                    t = t_local
-                    #t += dt
-                    # 1) Current Robot State
-                    q = np.array(rtde_r.getActualQ())
-                    J = UR_robot.jacob0(q)
-                    Jinv = np.linalg.pinv(J)
-                    g_current = UR_robot.fkine(q)
-                    p_temp = g_current.t
-                    R_current = g_current.R
-
-                    # 2) Desired Pose with Look-at-Center Orientation
-                    T_des, v_des, w_des = desired_pose_polar_with_look_at(t)
-                    p_des = T_des[:3, 3]
-                    R_des = quatIntegrate(T_des[:3, :3], w_des, dt)
-                    # R_des = T_des[:3, :3]
-
-
-                    # 3) 6D Error
-                    
-                    e[:3] = p_des - p_temp
-                    e[3:] = logError(R_des, R_current, getMin=True)
-
-                    
-                    # 4) Command (6D feedforward - error correction)
-                    # correction = kClik @ e
-                    correction = np.concatenate([v_des, w_des]) + kClik @ e
-
-                    # 5) joint velocity
-                    qdot = Jinv @ correction
-
-                    # 6) command speed
-                    rtde_c.speedJ(qdot, 1.0, dt)
-                
-
-                    # (vi) Partial cost (Kalman + detections)
-                    optimization_time_start=time.time()
-                    partial_reward = objective_function_with_kalman(currentParams)######### edw thelei allagh.....8a prepei na einai to current phi,theta
-                    optimization_time.append(time.time()-optimization_time_start)
-                    # print("t_local =",t_local)
-
-                    
-                    if partial_reward >best_experiment_value:
-                        best_experiment_value = partial_reward
-                        best_experiment_params = currentParams
-                        
-                        best_results.append((currentParams, partial_reward)) 
-                        filename = os.path.join(output_dir, f"PHITHETA_{best_experiment_params[0],best_experiment_params[1],partial_reward}.png")
-                        cv2.imwrite(filename, detector.get_last_frame())
-
-
-                    if (step_count%40 == 0): #Append per dt*population_size
-                        step_count += 1
-                        solutions_for_cma_manipulation.append((currentParams, partial_reward)) 
-                        
-
-                    if (step_count%population_size==0): #Tell per dt*population_size
-                        
-                        optimizer.tell(solutions_for_cma_manipulation)
-                        solutions_for_cma_manipulation  = [] 
-                        #step_count = 0
-                    
-                #
-                    if stop_signal:
-                        break
-                    rtde_c.waitPeriod(dt)
-                    t_local   += dt
-                    #rtde_c.waitPeriod(dt)
-                    time_end = time.time()
-                    elapsed_time = time_end-time_start
-                    remaining_time = dt -elapsed_time
-
-                    if remaining_time > 0:
-                        time.sleep(dt - elapsed_time)
-                        dt_time = time.time() - time_start
-                        # print("dt_time", dt_time)
-                    else:
-                        dt_time = time.time() - time_start
-                        # print("dt_time", dt_time)
-                        
-                    loop_time.append(elapsed_time)
-
-                # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            # 7B) Μόλις κλείσει το 50ms segment → CMA-ES
-            # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                
-
-                # Μέσο ή άθροισμα κόστους
-                #if step_count > 0:
-                #avg_cost = accumulated_cost / step_count
-                # else:
-                #     avg_cost = 999.0
-                #     print("something went wrong!!!")
-
-
-                phi0 = currentParams[0]
-                theta0 = currentParams[1]
-                
-            #optimizer.tell(solutions)    
-        
     
+    for exper in range(num_of_experiments):
+        
+
+        if (not stop_signal):
+            # 1) Ζητάς μια νέα υποψήφια λύση από το CMA-ES
+            
+            
+            phi1 = phi_combinations[exper]
+            theta1 = theta_combinations[exper]
+    
+            
+            # Reset simulation time, if applicable
+            t_local = 0.0
+            t_start = rtde_c.initPeriod()
+            while t_local < seg_time and not stop_signal:
+            
+                time_start = time.time()
+                t = t_local
+                #t += dt
+                # 1) Current Robot State
+                q = np.array(rtde_r.getActualQ())
+                J = UR_robot.jacob0(q)
+                Jinv = np.linalg.pinv(J)
+                g_current = UR_robot.fkine(q)
+                p_temp = g_current.t
+                R_current = g_current.R
+
+                # 2) Desired Pose with Look-at-Center Orientation
+                T_des, v_des, w_des = desired_pose_polar_with_look_at(t)
+                p_des = T_des[:3, 3]
+                R_des = quatIntegrate(T_des[:3, :3], w_des, dt)
+                # R_des = T_des[:3, :3]
+
+
+                # 3) 6D Error
+                
+                e[:3] = p_des - p_temp
+                e[3:] = logError(R_des, R_current, getMin=True)
+
+                
+                # 4) Command (6D feedforward - error correction)
+                # correction = kClik @ e
+                correction = np.concatenate([v_des, w_des]) + kClik @ e
+
+                # 5) joint velocity
+                qdot = Jinv @ correction
+
+                # 6) command speed
+                rtde_c.speedJ(qdot, 1.0, dt)
+            
+
+                # (vi) Partial cost (Kalman + detections)
+                optimization_time_start=time.time()
+                partial_reward = objective_function_with_kalman(currentParams)######### edw thelei allagh.....8a prepei na einai to current phi,theta
+                optimization_time.append(time.time()-optimization_time_start)
+                # print("t_local =",t_local)
+
+                
+                if partial_reward >best_experiment_value:
+                    best_experiment_value = partial_reward
+                    best_experiment_params = currentParams
+                    
+                    best_results.append((currentParams, partial_reward)) 
+                    filename = os.path.join(output_dir, f"PHITHETA_{best_experiment_params[0],best_experiment_params[1],partial_reward}.png")
+                    cv2.imwrite(filename, detector.get_last_frame())
+
+
+                # if (step_count%40 == 0): #Append per dt*population_size
+                #     step_count += 1
+                #     solutions_for_cma_manipulation.append((currentParams, partial_reward)) 
+                    
+
+                # if (step_count%population_size==0): #Tell per dt*population_size
+                    
+                #     optimizer.tell(solutions_for_cma_manipulation)
+                #     solutions_for_cma_manipulation  = [] 
+                #     #step_count = 0
+                
+            #
+                if stop_signal:
+                    break
+                rtde_c.waitPeriod(dt)
+                t_local   += dt
+                #rtde_c.waitPeriod(dt)
+                time_end = time.time()
+                elapsed_time = time_end-time_start
+                remaining_time = dt -elapsed_time
+
+                if remaining_time > 0:
+                    time.sleep(dt - elapsed_time)
+                    dt_time = time.time() - time_start
+                    # print("dt_time", dt_time)
+                else:
+                    dt_time = time.time() - time_start
+                    # print("dt_time", dt_time)
+                    
+                loop_time.append(elapsed_time)
+
+
+            phi0 = currentParams[0]
+            theta0 = currentParams[1]
+            print("Progress (%): ",(exper/num_of_experiments)*100)
+              
+            
+        
     t_local = 0.0
     rtde_c.speedStop()
     input("fhujdsf")
@@ -978,7 +955,7 @@ if __name__ == "__main__":
     end_time = time.time() 
     #print(e)   
     ellapsed_time = end_time - time_start
-     # Τέλος
+    # Τέλος
     print("eftassa")
     print(f"time: {ellapsed_time}")
     rtde_c.speedStop()
@@ -986,38 +963,49 @@ if __name__ == "__main__":
 
 # Plot all three time series
 
-plt.plot(optimization_time, label="optimization_time", linewidth=2)
-plt.plot(detector.get_process_time(), label="detection time", linewidth=2)
-plt.plot(loop_time, label="loop time", linewidth=2)
+# plt.plot(optimization_time, label="optimization_time", linewidth=2)
+# plt.plot(detector.get_process_time(), label="detection time", linewidth=2)
+# plt.plot(loop_time, label="loop time", linewidth=2)
 
-# Add legend
-plt.legend()
+# # Add legend
+# plt.legend()
 
-# Show grid
-plt.grid(True)
+# # Show grid
+# plt.grid(True)
 
-# Show the plot
-plt.show()
+# # Show the plot
+# plt.show()
 ######################################################**********************************#############################################
 ######################################################**********************************#############################################
 ###
 
-# data = [(x, y, z) for ((x, y), z) in best_results]
+# Assuming best_results contains floating point confidence values
+data = [(round(x, 6), round(y, 6), round(z, 6)) for ((x, y), z) in best_results]
 
-# # Convert to DataFrame
-# df = pd.DataFrame(data, columns=['X', 'Y', 'Confidence'])
+# Convert to DataFrame
+df = pd.DataFrame(data, columns=['X', 'Y', 'Confidence'])
 
-# # Pivot table for heatmap format
-# heatmap_data = df.pivot(index='X', columns='Y', values='Confidence')
+# Pivot table for heatmap format
+heatmap_data = df.pivot(index='X', columns='Y', values='Confidence')
 
-# # Plot using seaborn
-# plt.figure(figsize=(8, 6))
-# sns.heatmap(heatmap_data, annot=True, cmap='viridis', linewidths=0.5, cbar_kws={'label': 'Confidence Score'})
-# plt.title("Confidence Heatmap")
-# plt.xlabel("Y-axis")
-# plt.ylabel("X-axis")
-# plt.show()
+# Convert index and column names to formatted strings to ensure precision in display
+heatmap_data.index = [f"{x:.6f}" for x in heatmap_data.index]
+heatmap_data.columns = [f"{y:.6f}" for y in heatmap_data.columns]
 
+# Plot using seaborn with annotation format set to 4 decimal places
+plt.figure(figsize=(8, 6))
+sns.heatmap(heatmap_data, annot=True, fmt=".6f", cmap='viridis', 
+            linewidths=0.5, cbar_kws={'label': 'Confidence Score'})
+
+plt.title("Confidence Heatmap")
+plt.xlabel("Y-axis")
+plt.ylabel("X-axis")
+
+# Rotate axis labels for better readability
+plt.xticks(rotation=45)
+plt.yticks(rotation=0)
+
+plt.show()
 
 
 ##----Hello   !!!!!!

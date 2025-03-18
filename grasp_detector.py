@@ -75,6 +75,7 @@ class TomatoDetector:
         self.model = YOLO(model_path)
         self.show_frame = show_frame
         self.last_frame = None
+        self.process_times = []
 
         # Define colors for keypoints
         self.keypoint_colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
@@ -155,6 +156,7 @@ class TomatoDetector:
         cv2.arrowedLine(image, tuple(map(int, origin_2d)), tuple(map(int, z_2d)), (255, 0, 0), 2)
 
     def process_frame(self):
+
         frames = self.pipeline.wait_for_frames()
         aligned_frames = self.align.process(frames)
         color_frame = aligned_frames.get_color_frame()
@@ -267,10 +269,18 @@ class TomatoDetector:
     def get_last_frame(self):
         return self.last_frame
 
+    def get_process_time(self):
+        return self.process_times
+
+
     def run(self):
         try:
             while True:
+                start_time = time.time()
                 image = self.process_frame()
+                end_time = time.time() - start_time
+                self.process_times.append(end_time)
+
                 self.last_frame = image
                 if image is None:
                     continue
