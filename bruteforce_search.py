@@ -6,7 +6,7 @@ import time
 import roboticstoolbox as rt
 import rtde_receive
 import rtde_control
-
+from scipy.interpolate import griddata
 # Orientation/rotation utility
 from CSRL_math import *
 from CSRL_orientation import *
@@ -28,7 +28,7 @@ from get_camera_position import *
 from cmaes import CMAwM
 import grasp_detector
 import seaborn as sns
-
+from scipy.special import gamma
 import pandas as pd
 import os
 
@@ -77,6 +77,21 @@ F = np.eye(18)
 z = np.zeros(18)
 measurement_uncertainty  = np.eye(18)
 
+
+def ellipsoid_volume():
+    """Computes volume of an n-dimensional ellipsoid given covariance matrix P"""
+    global P
+    n = P.shape[0]  # Dimension (should be 18 in this case)
+    det_P = np.linalg.det(P)
+
+    # Ensure determinant is positive to avoid numerical errors
+    if det_P <= 0:
+        return 0
+
+    volume = (np.pi ** (n / 2) / gamma(n / 2 + 1)) * np.sqrt(det_P)
+    return volume
+
+
 def objective_function_with_kalman(params):
     
     global P,KALMAN_GAIN,H,Q,F,rewrd
@@ -86,217 +101,217 @@ def objective_function_with_kalman(params):
     if not (np.pi/8< phi <= np.pi/2-0.3) or not (np.pi/8< theta <=  np.pi/2-0.3):
         return -np.inf  # Penalize invalid parameters
     
-    #try:
-    cur_phi=phi
-    cur_theta = theta
-    
-    
-    q_ = np.array(rtde_r.getActualQ())
-    g_ = UR_robot.fkine(q_)
-    p_ = g_.t
-    Ri = g_.R
-    g0e = np.identity(4)
-    g0e[0:3,0:3] = Ri.copy()
-    g0e[0:3,3] = p_.copy()
-    # Transform the 3D point to world coordinates using g0c
-    g0c = g0e@gec
-
-
-    #z,measurement_uncertainty=give_me_detections(cur_phi,cur_theta)
-    keypoints = detector.get_last_keypoint_set()  # Retrieve the latest keypoint set
-    
-    if keypoints:
-        for idx, kp in keypoints.items():
-            p_te =  g0c @ np.append(kp["point"], 1)
-            idx = int(idx)
-            
-            z[idx] = p_te[0]         # This gives you the 3D coordinates, e.g., [x, y, z]
-            z[idx+6] = p_te[1]         # This gives you the 3D coordinates, e.g., [x, y, z]
-            z[idx+12] = p_te[2]         # This gives you the 3D coordinates, e.g., [x, y, z]
-
-            # # Find the diagonal position to update
-            # diag_index = idx * 6  # For idx=0, it's the first 3 positions; for idx=1, the next 3 positions, etc.
-            # # Fill the corresponding diagonal block with the keypoint's confidence
-            # np.fill_diagonal(measurement_uncertainty[diag_index:diag_index+6, diag_index:diag_index+6], 1-kp["confidence"])
-            # Compute and fill the correct diagonal positions
-            diag_indices = [idx, idx + 6, idx + 12]
-            # np.fill_diagonal(measurement_uncertainty[diag_indices, diag_indices], 1 - kp["confidence"])
-            measurement_uncertainty[diag_indices, diag_indices] = 1 - kp["confidence"]
-            # print(measurement_uncertainty)
-            #print(f'idx: {idx}, confidence: {kp["confidence"]}')
-
-
-            #print(f"Keypoint {idx}: Coordinates = {point}, Confidence = {confidence}")
-
-
-    else:
-        print("No keypoints detected in the current frame.")
-    # print(f"Z = {z}")
-    # print(f"measurement: {measurement_uncertainty}")
-
-
-    iterat = 1
-    if iterat == 1:
-        x = np.array([-0.02, -0.02, -0.01,-0.025, -0.026, -0.018, -0.61, -0.68,-0.67,-0.57, -0.62,-0.65, 0.38,0.4,0.47,0.4,0.45,0.49]).T
+    try:
+        cur_phi=phi
+        cur_theta = theta
         
-    # # Set camera position
-    
-    # X_cam = p_des[0]
-    # Y_cam = p_des[1]
-    # Z_cam =  p_des[2]
-    #print('APOSTASH',(X_cam-pivot_x)**2+(Y_cam-pivot_y)**2+(Z_cam-pivot_z)**2-radius**2)
-    # Update camera extrinsics or other parapi/2meters as needed
-    # c_extr = current_extrinsic(X_cam, Y_cam, Z_cam, pivot_x, pivot_y, pivot_z)
+        
+        q_ = np.array(rtde_r.getActualQ())
+        g_ = UR_robot.fkine(q_)
+        p_ = g_.t
+        Ri = g_.R
+        g0e = np.identity(4)
+        g0e[0:3,0:3] = Ri.copy()
+        g0e[0:3,3] = p_.copy()
+        # Transform the 3D point to world coordinates using g0c
+        g0c = g0e@gec
 
-    # Initialize variables
-    # x_hat = np.array([-0.77, -0.77, -0.77, -0.24, -0.44, -0.34,0.34,0.34,0.5]).T
-    x_hat = x.copy()
 
-    projected_point_0 = np.linalg.inv(T_des) @ np.hstack((x_hat[[0, 6, 12]],[1]))
-    projected_point_1 = np.linalg.inv(T_des) @ np.hstack((x_hat[[1, 7, 13]],[1]))
-    projected_point_2 = np.linalg.inv(T_des) @ np.hstack((x_hat[[2, 8, 14]],[1]))
+        #z,measurement_uncertainty=give_me_detections(cur_phi,cur_theta)
+        keypoints = detector.get_last_keypoint_set()  # Retrieve the latest keypoint set
+        
+        if keypoints:
+            for idx, kp in keypoints.items():
+                p_te =  g0c @ np.append(kp["point"], 1)
+                idx = int(idx)
+                
+                z[idx] = p_te[0]         # This gives you the 3D coordinates, e.g., [x, y, z]
+                z[idx+6] = p_te[1]         # This gives you the 3D coordinates, e.g., [x, y, z]
+                z[idx+12] = p_te[2]         # This gives you the 3D coordinates, e.g., [x, y, z]
 
-    projected_point_3 = np.linalg.inv(T_des) @ np.hstack((x_hat[[3, 9, 15]],[1]))
-    projected_point_4 = np.linalg.inv(T_des) @ np.hstack((x_hat[[4, 10, 16]],[1]))
-    projected_point_5 = np.linalg.inv(T_des) @ np.hstack((x_hat[[5, 11, 17]],[1]))
+                # # Find the diagonal position to update
+                # diag_index = idx * 6  # For idx=0, it's the first 3 positions; for idx=1, the next 3 positions, etc.
+                # # Fill the corresponding diagonal block with the keypoint's confidence
+                # np.fill_diagonal(measurement_uncertainty[diag_index:diag_index+6, diag_index:diag_index+6], 1-kp["confidence"])
+                # Compute and fill the correct diagonal positions
+                diag_indices = [idx, idx + 6, idx + 12]
+                # np.fill_diagonal(measurement_uncertainty[diag_indices, diag_indices], 1 - kp["confidence"])
+                measurement_uncertainty[diag_indices, diag_indices] = 1 - kp["confidence"]
+                # print(measurement_uncertainty)
+                #print(f'idx: {idx}, confidence: {kp["confidence"]}')
 
-    # Project the 3D point onto the 2D pixel plane
-    pixelCoordstag0 = K @ projected_point_0[0:3]
-    pixelCoordstag1 = K @ projected_point_1[0:3]
-    pixelCoordstag2 = K @ projected_point_2[0:3]
 
-    pixelCoordstag3 = K @ projected_point_3[0:3]
-    pixelCoordstag4 = K @ projected_point_4[0:3]
-    pixelCoordstag5 = K @ projected_point_5[0:3]
+                #print(f"Keypoint {idx}: Coordinates = {point}, Confidence = {confidence}")
 
-    if pixelCoordstag0[2] >= 0:
-        # Normalize to get pixel coordinates
-        pixelCoordstag0 = pixelCoordstag0 / pixelCoordstag0[2]
-        utag0 = pixelCoordstag0[0]
-        vtag0 = pixelCoordstag0[1]
 
-    if pixelCoordstag1[2] >= 0:
-        # Normalize to get pixel coordinates
-        pixelCoordstag1 = pixelCoordstag1 / pixelCoordstag1[2]
-        utag1 = pixelCoordstag1[0]
-        vtag1 = pixelCoordstag1[1]
+        else:
+            print("No keypoints detected in the current frame.")
+        # print(f"Z = {z}")
+        # print(f"measurement: {measurement_uncertainty}")
 
-    if pixelCoordstag2[2] >= 0:
-        # Normalize to get pixel coordinates
-        pixelCoordstag2 = pixelCoordstag2 / pixelCoordstag2[2]
-        utag2 = pixelCoordstag2[0]
-        vtag2 = pixelCoordstag2[1]
 
-    if pixelCoordstag3[2] >= 0:
-        # Normalize to get pixel coordinates
-        pixelCoordstag3 = pixelCoordstag3 / pixelCoordstag3[2]
-        utag3 = pixelCoordstag3[0]
-        vtag3 = pixelCoordstag3[1]
+        iterat = 1
+        if iterat == 1:
+            x = np.array([-0.02, -0.02, -0.01,-0.025, -0.026, -0.018, -0.61, -0.68,-0.67,-0.57, -0.62,-0.65, 0.38,0.4,0.47,0.4,0.45,0.49]).T
+            
+        # # Set camera position
+        
+        # X_cam = p_des[0]
+        # Y_cam = p_des[1]
+        # Z_cam =  p_des[2]
+        #print('APOSTASH',(X_cam-pivot_x)**2+(Y_cam-pivot_y)**2+(Z_cam-pivot_z)**2-radius**2)
+        # Update camera extrinsics or other parapi/2meters as needed
+        # c_extr = current_extrinsic(X_cam, Y_cam, Z_cam, pivot_x, pivot_y, pivot_z)
 
-    if pixelCoordstag4[2] >= 0:
-        # Normalize to get pixel coordinates
-        pixelCoordstag4 = pixelCoordstag4 / pixelCoordstag4[2]
-        utag4 = pixelCoordstag4[0]
-        vtag4 = pixelCoordstag4[1]
+        # Initialize variables
+        # x_hat = np.array([-0.77, -0.77, -0.77, -0.24, -0.44, -0.34,0.34,0.34,0.5]).T
+        x_hat = x.copy()
 
-    if pixelCoordstag5[2] >= 0:
-        # Normalize to get pixel coordinates
-        pixelCoordstag5 = pixelCoordstag5 / pixelCoordstag5[2]
-        utag5 = pixelCoordstag5[0]
-        vtag5 = pixelCoordstag5[1]
+        projected_point_0 = np.linalg.inv(T_des) @ np.hstack((x_hat[[0, 6, 12]],[1]))
+        projected_point_1 = np.linalg.inv(T_des) @ np.hstack((x_hat[[1, 7, 13]],[1]))
+        projected_point_2 = np.linalg.inv(T_des) @ np.hstack((x_hat[[2, 8, 14]],[1]))
 
-    M = np.eye(18)    
-    # Check if the point is within the image boundaries
-    if 0 <= utag0 <= image_width and 0 <= vtag0 <= image_height:
-        SIGMA = measurement_uncertainty 
-        # print(1)
-    else:
-        M[[0, 6, 12], [0, 6, 12]] = 10000000000000
-        SIGMA = measurement_uncertainty @ M 
-        # print(2)
+        projected_point_3 = np.linalg.inv(T_des) @ np.hstack((x_hat[[3, 9, 15]],[1]))
+        projected_point_4 = np.linalg.inv(T_des) @ np.hstack((x_hat[[4, 10, 16]],[1]))
+        projected_point_5 = np.linalg.inv(T_des) @ np.hstack((x_hat[[5, 11, 17]],[1]))
 
-    if 0 <= utag1 <= image_width and 0 <= vtag1 <= image_height:
-        SIGMA = measurement_uncertainty 
-        # print(3)
-    else:
-        M[[1, 7, 13],[1, 7, 13]] = 10000000000000
-        SIGMA = measurement_uncertainty @ M 
-        # print(4)
+        # Project the 3D point onto the 2D pixel plane
+        pixelCoordstag0 = K @ projected_point_0[0:3]
+        pixelCoordstag1 = K @ projected_point_1[0:3]
+        pixelCoordstag2 = K @ projected_point_2[0:3]
 
-    if 0 <= utag2 <= image_width and 0 <= vtag2 <= image_height:
-        SIGMA = measurement_uncertainty 
-        # print(5)
-    else:
-        M[[2,8,14],[2,8,14]] = 10000000000000
-        SIGMA = measurement_uncertainty @ M  
-        # print(6)
-    
-    if 0 <= utag3 <= image_width and 0 <= vtag3 <= image_height:
-        SIGMA = measurement_uncertainty 
-        # print(1)
-    else:
-        M[[3, 9, 15], [3, 9, 15]] = 10000000000000
-        SIGMA = measurement_uncertainty @ M 
-        # print(2)
+        pixelCoordstag3 = K @ projected_point_3[0:3]
+        pixelCoordstag4 = K @ projected_point_4[0:3]
+        pixelCoordstag5 = K @ projected_point_5[0:3]
 
-    if 0 <= utag4 <= image_width and 0 <= vtag4 <= image_height:
-        SIGMA = measurement_uncertainty 
-        # print(3)
-    else:
-        M[[4, 10, 16],[4, 10, 16]] = 10000000000000
-        SIGMA = measurement_uncertainty @ M 
-        # print(4)
+        if pixelCoordstag0[2] >= 0:
+            # Normalize to get pixel coordinates
+            pixelCoordstag0 = pixelCoordstag0 / pixelCoordstag0[2]
+            utag0 = pixelCoordstag0[0]
+            vtag0 = pixelCoordstag0[1]
 
-    if 0 <= utag5 <= image_width and 0 <= vtag5 <= image_height:
-        SIGMA = measurement_uncertainty 
-        # print(5)
-    else:
-        M[[5,11,17],[5,11,17]] = 10000000000000
-        SIGMA = measurement_uncertainty @ M  
+        if pixelCoordstag1[2] >= 0:
+            # Normalize to get pixel coordinates
+            pixelCoordstag1 = pixelCoordstag1 / pixelCoordstag1[2]
+            utag1 = pixelCoordstag1[0]
+            vtag1 = pixelCoordstag1[1]
 
-    if iterat == 1:
-        P = Q.copy()
+        if pixelCoordstag2[2] >= 0:
+            # Normalize to get pixel coordinates
+            pixelCoordstag2 = pixelCoordstag2 / pixelCoordstag2[2]
+            utag2 = pixelCoordstag2[0]
+            vtag2 = pixelCoordstag2[1]
 
-    # PREDICT STAGE
-    x_pred = F @ x 
-    P_pred = F @ P @ F.T + Q
+        if pixelCoordstag3[2] >= 0:
+            # Normalize to get pixel coordinates
+            pixelCoordstag3 = pixelCoordstag3 / pixelCoordstag3[2]
+            utag3 = pixelCoordstag3[0]
+            vtag3 = pixelCoordstag3[1]
 
-    # Kalman Filter Update
-    y = z - H @ x_pred                  # Innovation
+        if pixelCoordstag4[2] >= 0:
+            # Normalize to get pixel coordinates
+            pixelCoordstag4 = pixelCoordstag4 / pixelCoordstag4[2]
+            utag4 = pixelCoordstag4[0]
+            vtag4 = pixelCoordstag4[1]
 
-    bl_diag = block_diag(T_des[0:3, 0:3], T_des[0:3, 0:3], T_des[0:3, 0:3],T_des[0:3, 0:3], T_des[0:3, 0:3], T_des[0:3, 0:3])
-    S = H @ P_pred @ H.T + bl_diag @ SIGMA @ bl_diag.T
-    
+        if pixelCoordstag5[2] >= 0:
+            # Normalize to get pixel coordinates
+            pixelCoordstag5 = pixelCoordstag5 / pixelCoordstag5[2]
+            utag5 = pixelCoordstag5[0]
+            vtag5 = pixelCoordstag5[1]
 
-    KALMAN_GAIN = P_pred @ H.T @ np.linalg.inv(S) # Kalman gain
+        M = np.eye(18)    
+        # Check if the point is within the image boundaries
+        if 0 <= utag0 <= image_width and 0 <= vtag0 <= image_height:
+            SIGMA = measurement_uncertainty 
+            # print(1)
+        else:
+            M[[0, 6, 12], [0, 6, 12]] = 10000000000000
+            SIGMA = measurement_uncertainty @ M 
+            # print(2)
 
-    x = x_pred + KALMAN_GAIN @ y                  # Updated state estimate
-    P = (np.eye(18) - KALMAN_GAIN @ H) @ P_pred    # Updated estimate covariance
-    
-    iterat += 1
+        if 0 <= utag1 <= image_width and 0 <= vtag1 <= image_height:
+            SIGMA = measurement_uncertainty 
+            # print(3)
+        else:
+            M[[1, 7, 13],[1, 7, 13]] = 10000000000000
+            SIGMA = measurement_uncertainty @ M 
+            # print(4)
 
-    sign1, logdetP_pred = np.linalg.slogdet(P_pred)
-    sign2, logdetP_post = np.linalg.slogdet(P)
-    
-    # if sign1 <= 0 or sign2 <= 0:
-    #     rewrd = 1e5
-    # else:
-    # info_gain = abs(0.5*(logdetP_pred-logdetP_post))
-    
-    det_prior = np.linalg.det(P_pred)
-    det_post = np.linalg.det(P)
-    
-    
-    # division-based log form
-    #info_gain = abs(np.log(det_prior/det_post))#because cmaes minimizes
-    info_gain = np.log((det_prior/det_post))#because cmaes minimizes
-    rewrd = info_gain
-    # rewrd= np.linalg.det(P)
-    return rewrd
+        if 0 <= utag2 <= image_width and 0 <= vtag2 <= image_height:
+            SIGMA = measurement_uncertainty 
+            # print(5)
+        else:
+            M[[2,8,14],[2,8,14]] = 10000000000000
+            SIGMA = measurement_uncertainty @ M  
+            # print(6)
+        
+        if 0 <= utag3 <= image_width and 0 <= vtag3 <= image_height:
+            SIGMA = measurement_uncertainty 
+            # print(1)
+        else:
+            M[[3, 9, 15], [3, 9, 15]] = 10000000000000
+            SIGMA = measurement_uncertainty @ M 
+            # print(2)
 
-    # except Exception as e:
-    #     print(f"Exception in objective function 3: {e}")
-    #     return -np.inf 
+        if 0 <= utag4 <= image_width and 0 <= vtag4 <= image_height:
+            SIGMA = measurement_uncertainty 
+            # print(3)
+        else:
+            M[[4, 10, 16],[4, 10, 16]] = 10000000000000
+            SIGMA = measurement_uncertainty @ M 
+            # print(4)
+
+        if 0 <= utag5 <= image_width and 0 <= vtag5 <= image_height:
+            SIGMA = measurement_uncertainty 
+            # print(5)
+        else:
+            M[[5,11,17],[5,11,17]] = 10000000000000
+            SIGMA = measurement_uncertainty @ M  
+
+        if iterat == 1:
+            P = Q.copy()
+
+        # PREDICT STAGE
+        x_pred = F @ x 
+        P_pred = F @ P @ F.T + Q
+
+        # Kalman Filter Update
+        y = z - H @ x_pred                  # Innovation
+
+        bl_diag = block_diag(T_des[0:3, 0:3], T_des[0:3, 0:3], T_des[0:3, 0:3],T_des[0:3, 0:3], T_des[0:3, 0:3], T_des[0:3, 0:3])
+        S = H @ P_pred @ H.T + bl_diag @ SIGMA @ bl_diag.T
+        
+
+        KALMAN_GAIN = P_pred @ H.T @ np.linalg.inv(S) # Kalman gain
+
+        x = x_pred + KALMAN_GAIN @ y                  # Updated state estimate
+        P = (np.eye(18) - KALMAN_GAIN @ H) @ P_pred    # Updated estimate covariance
+        
+        iterat += 1
+
+        sign1, logdetP_pred = np.linalg.slogdet(P_pred)
+        sign2, logdetP_post = np.linalg.slogdet(P)
+        
+        # if sign1 <= 0 or sign2 <= 0:
+        #     rewrd = 1e5
+        # else:
+        # info_gain = abs(0.5*(logdetP_pred-logdetP_post))
+        
+        det_prior = np.linalg.det(P_pred)
+        det_post = np.linalg.det(P)
+        
+        
+        # division-based log form
+        #info_gain = abs(np.log(det_prior/det_post))#because cmaes minimizes
+        info_gain = np.log((det_prior/det_post))#because cmaes minimizes
+        rewrd = info_gain
+        # rewrd= np.linalg.det(P)
+        return rewrd
+
+    except Exception as e:
+        print(f"Exception in objective function 3: {e}")
+        return -np.inf 
 
     
 
@@ -767,8 +782,8 @@ if __name__ == "__main__":
 
     # phi_range = np.linspace(np.pi / 5, np.pi / 3, 7)   
     # theta_range = np.linspace(0.0, 2 * np.pi - (1/5)* 2 * np.pi, 7)
-    phi_range = np.linspace(np.pi/8,np.pi/2-0.3, 7)   
-    theta_range = np.linspace(np.pi/8,np.pi/2-0.3, 7)
+    phi_range = np.linspace(np.pi/8+0.001,np.pi/2-0.3-0.001, 15)   
+    theta_range = np.linspace(np.pi/8+0.001,np.pi/2-0.3-0.001, 15)
     phi_grid, theta_grid = np.meshgrid(phi_range, theta_range)
 
     phi_combinations = phi_grid.flatten()
@@ -782,7 +797,7 @@ if __name__ == "__main__":
     
     initial_parameters = np.array([phi0,theta0])
     cma_bounds = np.array([[np.pi/8,np.pi/2-0.3], [np.pi/8,np.pi/2-0.3]])
-    steps = np.zeros(2)  # Continuous dimensions only
+    steps = np.ones(2)*0.001  # Continuous dimensions only
 
     population_size =5
     optimizer = CMAwM(
@@ -801,7 +816,9 @@ if __name__ == "__main__":
     best_results =[]
     step_count = 0
 
-    
+    visualize=[]
+    volume = []  # List to store sigma over iterations
+
     for exper in range(num_of_experiments):
         
 
@@ -858,8 +875,8 @@ if __name__ == "__main__":
                 partial_reward = objective_function_with_kalman(currentParams)######### edw thelei allagh.....8a prepei na einai to current phi,theta
                 optimization_time.append(time.time()-optimization_time_start)
                 # print("t_local =",t_local)
-
-                
+                visualize.append((currentParams, partial_reward))
+                 
                 if partial_reward >best_experiment_value:
                     best_experiment_value = partial_reward
                     best_experiment_params = currentParams
@@ -869,18 +886,6 @@ if __name__ == "__main__":
                     cv2.imwrite(filename, detector.get_last_frame())
 
 
-                # if (step_count%40 == 0): #Append per dt*population_size
-                #     step_count += 1
-                #     solutions_for_cma_manipulation.append((currentParams, partial_reward)) 
-                    
-
-                # if (step_count%population_size==0): #Tell per dt*population_size
-                    
-                #     optimizer.tell(solutions_for_cma_manipulation)
-                #     solutions_for_cma_manipulation  = [] 
-                #     #step_count = 0
-                
-            #
                 if stop_signal:
                     break
                 rtde_c.waitPeriod(dt)
@@ -900,16 +905,18 @@ if __name__ == "__main__":
                     
                 loop_time.append(elapsed_time)
 
-
+            #volume.append(ellipsoid_volume())
+            #visualize.append((currentParams, partial_reward))
+            
             phi0 = currentParams[0]
             theta0 = currentParams[1]
             print("Progress (%): ",(exper/num_of_experiments)*100)
               
-            
-        
+    #print(visualize)        
+    print("Progress (%): ",100)    
     t_local = 0.0
     rtde_c.speedStop()
-    input("fhujdsf")
+    input("Press 'Enter' gia Na Paw Sthn Optimal Pose")
     best_params, best_reward = max(best_results, key=lambda x: x[1])
     # print(best_params)
     phi1 = best_params[0]
@@ -917,7 +924,7 @@ if __name__ == "__main__":
     # print("Final - Best Position:", phi1, theta1)  
     time_start = time.time()
     while t_local < seg_time and not stop_signal:
-        
+        time_start = time.time()
         t_start = rtde_c.initPeriod()
         t = t_local
 
@@ -950,14 +957,25 @@ if __name__ == "__main__":
 
         # 6) command speed
         rtde_c.speedJ(qdot, 1.0, dt)
-        t_local += dt
         rtde_c.waitPeriod(dt)
-    end_time = time.time() 
+        t_local += dt
+        
+        time_end = time.time()
+        elapsed_time = time_end-time_start
+        remaining_time = dt -elapsed_time
+
+        if remaining_time > 0:
+            time.sleep(dt - elapsed_time)
+            dt_time = time.time() - time_start
+            # print("dt_time", dt_time)
+        else:
+            dt_time = time.time() - time_start
+    #end_time = time.time() 
     #print(e)   
-    ellapsed_time = end_time - time_start
+    #ellapsed_time = end_time - time_start
     # Τέλος
-    print("eftassa")
-    print(f"time: {ellapsed_time}")
+    print("Finish")
+    #print(f"time: {ellapsed_time}")
     rtde_c.speedStop()
   
 
@@ -979,36 +997,66 @@ if __name__ == "__main__":
 ######################################################**********************************#############################################
 ###
 
-# Assuming best_results contains floating point confidence values
-data = [(round(x, 6), round(y, 6), round(z, 6)) for ((x, y), z) in best_results]
+
 
 # Convert to DataFrame
-df = pd.DataFrame(data, columns=['X', 'Y', 'Confidence'])
+# df = pd.DataFrame(data, columns=['X', 'Y', 'Reward'])
 
-# Pivot table for heatmap format
-heatmap_data = df.pivot(index='X', columns='Y', values='Confidence')
+# # Aggregate duplicate (X, Y) values by averaging rewards (change to max/min if needed)
+# df = df.groupby(['X', 'Y'], as_index=False)['Reward'].mean()
 
-# Convert index and column names to formatted strings to ensure precision in display
-heatmap_data.index = [f"{x:.6f}" for x in heatmap_data.index]
-heatmap_data.columns = [f"{y:.6f}" for y in heatmap_data.columns]
+# df['Reward'].replace([-np.inf], 0, inplace=True)
 
-# Plot using seaborn with annotation format set to 4 decimal places
-plt.figure(figsize=(8, 6))
-sns.heatmap(heatmap_data, annot=True, fmt=".6f", cmap='viridis', 
-            linewidths=0.5, cbar_kws={'label': 'Confidence Score'})
+# # Pivot table for heatmap format
+# heatmap_data = df.pivot(index='X', columns='Y', values='Reward')
 
-plt.title("Confidence Heatmap")
-plt.xlabel("Y-axis")
-plt.ylabel("X-axis")
+# # Convert index and column names to formatted strings to ensure precision in display
+# heatmap_data.index = [f"{x:.4f}" for x in heatmap_data.index]
+# heatmap_data.columns = [f"{y:.4f}" for y in heatmap_data.columns]
 
-# Rotate axis labels for better readability
-plt.xticks(rotation=45)
-plt.yticks(rotation=0)
+# # Plot using seaborn with colors only (no text inside)
+# plt.figure(figsize=(10, 8))
+# sns.heatmap(heatmap_data, annot=True, cmap='viridis', 
+#             linewidths=0.5, cbar_kws={'label': 'Confidence Score'})
 
+# plt.title("Reward Heatmap")
+# plt.xlabel("Y-axis")
+# plt.ylabel("X-axis")
+
+# # Rotate axis labels for better readability
+# plt.xticks(rotation=45)
+# plt.yticks(rotation=0)
+
+# plt.show()
+
+
+
+
+data = [(round(x, 4), round(y, 4), round(z, 4)) for ((x, y), z) in visualize]
+
+# Convert to DataFrame
+df = pd.DataFrame(data, columns=['X', 'Y', 'Reward'])
+df['Reward'].replace([-np.inf], 0, inplace=True)
+# Aggregate duplicate (X, Y) values by averaging rewards
+#df = df.groupby(['X', 'Y'], as_index=False)['Reward'].mean()
+# Identify initial and optimal points
+initial_point = df.iloc[0]  # Assuming the first recorded point is the initial
+optimal_point = df.loc[df['Reward'].idxmax()]  # Point with the highest reward
+# Scatter Plot
+plt.figure(figsize=(10, 8))
+scatter = plt.scatter(df.X, df.Y, c=df.Reward, cmap='viridis', edgecolors='black', linewidth=0.5, s=50)
+
+# Highlight initial and optimal points
+plt.scatter(initial_point.X, initial_point.Y, color='red', marker='o', s=150, label="Initial Point", edgecolors='black', linewidth=1.5)
+plt.scatter(optimal_point.X, optimal_point.Y, color='red', marker='*', s=200, label="Optimal Point", edgecolors='black', linewidth=1.5)
+
+# Add color bar
+cbar = plt.colorbar(scatter)
+cbar.set_label("Reward Intensity")
+
+# Labels and Title
+plt.xlabel("X Coordinate")
+plt.ylabel("Y Coordinate")
+plt.title("Scatter Plot of Reward Intensity")
+plt.legend()
 plt.show()
-
-
-##----Hello   !!!!!!
-# 
-# 
-#  

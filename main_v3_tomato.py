@@ -288,7 +288,8 @@ def objective_function_with_kalman(params):
     
     
     # division-based log form
-    info_gain = abs(0.5 * np.log(det_prior/det_post))#because cmaes minimizes
+    #info_gain = abs(np.log(det_prior/det_post))#because cmaes minimizes
+    info_gain = np.log((det_prior/det_post))#because cmaes minimizes
     rewrd = info_gain
     # rewrd= np.linalg.det(P)
     return rewrd
@@ -729,11 +730,9 @@ if __name__ == "__main__":
     phi0   = np.pi/6
     
     theta0 = np.pi/3
-    
-    # dt        = 0.003      # 
-    # seg_time  =0.8       # point to point movement
-    dt        = 0.02     # 
-    seg_time  =5     # move time operator
+  
+    dt        = 0.02     # 20 ms ()
+    seg_time  =5     # time (sec) for point to point movement with quintic (5th order) profile
 
     time_now  = 0.0
     duration = seg_time #seconds
@@ -780,18 +779,18 @@ if __name__ == "__main__":
 
     
 
-    num_of_experiments = 1#len(phi_combinations)
+    #num_of_experiments = 1#len(phi_combinations)
 
 
     # for exper in range(num_of_experiments):
     initial_parameters = np.array([phi0,theta0])
     cma_bounds = np.array([[np.pi/8,np.pi/2-0.3], [np.pi/8,np.pi/2-0.3]])
-    steps = np.zeros(2)  # Continuous dimensions only
+    steps = 0.01*np.ones(2)  # Continuous dimensions only
 
-    population_size =10
+    population_size =6
     optimizer = CMAwM(
         mean=initial_parameters,
-        sigma=2,#1000.0,
+        sigma=6,#2,
         bounds=cma_bounds,
         steps=steps,
         population_size=population_size
@@ -810,7 +809,7 @@ if __name__ == "__main__":
     best_results =[]
     step_count = 0
 
-    for i in range (1): # Ektelw 2 epochs (h alliws iterations)
+    for i in range (5): # Ektelw 5 epochs (h alliws iterations)
         solutions = [] 
         solutions_for_cma_manipulation  = [] 
     # 7) Κυρίως βρόχος μέχρι total_time
@@ -879,13 +878,13 @@ if __name__ == "__main__":
                         filename = os.path.join(output_dir, f"PHITHETA_{best_experiment_params[0],best_experiment_params[1],partial_reward}.png")
                         cv2.imwrite(filename, detector.get_last_frame())
 
-
+                    step_count += 1
                     if (step_count%40 == 0): #Append per dt*population_size
-                        step_count += 1
+                        #step_count += 1
                         solutions_for_cma_manipulation.append((currentParams, partial_reward)) 
                         
-
-                    if (step_count%population_size==0): #Tell per dt*population_size
+                    
+                    if (len(solutions_for_cma_manipulation)==population_size): #Tell per dt*population_size
                         
                         optimizer.tell(solutions_for_cma_manipulation)
                         solutions_for_cma_manipulation  = [] 
@@ -940,7 +939,7 @@ if __name__ == "__main__":
     # print("Final - Best Position:", phi1, theta1)  
     time_start = time.time()
     while t_local < seg_time and not stop_signal:
-        
+        time_start = time.time()
         t_start = rtde_c.initPeriod()
         t = t_local
 
@@ -973,54 +972,70 @@ if __name__ == "__main__":
 
         # 6) command speed
         rtde_c.speedJ(qdot, 1.0, dt)
-        t_local += dt
         rtde_c.waitPeriod(dt)
-    end_time = time.time() 
+        t_local += dt
+        
+        time_end = time.time()
+        elapsed_time = time_end-time_start
+        remaining_time = dt -elapsed_time
+
+        if remaining_time > 0:
+            time.sleep(dt - elapsed_time)
+            dt_time = time.time() - time_start
+            # print("dt_time", dt_time)
+        else:
+            dt_time = time.time() - time_start
+    #end_time = time.time() 
     #print(e)   
-    ellapsed_time = end_time - time_start
-     # Τέλος
-    print("eftassa")
-    print(f"time: {ellapsed_time}")
+    #ellapsed_time = end_time - time_start
+    # Τέλος
+    print("Finish")
+    #print(f"time: {ellapsed_time}")
     rtde_c.speedStop()
   
 
 # Plot all three time series
 
-plt.plot(optimization_time, label="optimization_time", linewidth=2)
-plt.plot(detector.get_process_time(), label="detection time", linewidth=2)
-plt.plot(loop_time, label="loop time", linewidth=2)
+# plt.plot(optimization_time, label="optimization_time", linewidth=2)
+# plt.plot(detector.get_process_time(), label="detection time", linewidth=2)
+# plt.plot(loop_time, label="loop time", linewidth=2)
 
-# Add legend
-plt.legend()
+# # Add legend
+# plt.legend()
 
-# Show grid
-plt.grid(True)
+# # Show grid
+# plt.grid(True)
 
-# Show the plot
-plt.show()
+# # Show the plot
+# plt.show()
 ######################################################**********************************#############################################
 ######################################################**********************************#############################################
 ###
+data = [(round(x, 4), round(y, 4), round(z, 4)) for ((x, y), z) in best_results]
 
-# data = [(x, y, z) for ((x, y), z) in best_results]
+# Convert to DataFrame
+df = pd.DataFrame(data, columns=['X', 'Y', 'Reward'])
+df['Reward'].replace([-np.inf], 0, inplace=True)
+# Aggregate duplicate (X, Y) values by averaging rewards
+#df = df.groupby(['X', 'Y'], as_index=False)['Reward'].mean()
+# Identify initial and optimal points
+initial_point = df.iloc[0]  # Assuming the first recorded point is the initial
+optimal_point = df.loc[df['Reward'].idxmax()]  # Point with the highest reward
+# Scatter Plot
+plt.figure(figsize=(10, 8))
+scatter = plt.scatter(df.X, df.Y, c=df.Reward, cmap='viridis', edgecolors='black', linewidth=0.5, s=50)
 
-# # Convert to DataFrame
-# df = pd.DataFrame(data, columns=['X', 'Y', 'Confidence'])
+# Highlight initial and optimal points
+plt.scatter(initial_point.X, initial_point.Y, color='red', marker='o', s=150, label="Initial Point", edgecolors='black', linewidth=1.5)
+plt.scatter(optimal_point.X, optimal_point.Y, color='red', marker='*', s=200, label="Optimal Point", edgecolors='black', linewidth=1.5)
 
-# # Pivot table for heatmap format
-# heatmap_data = df.pivot(index='X', columns='Y', values='Confidence')
+# Add color bar
+cbar = plt.colorbar(scatter)
+cbar.set_label("Reward Intensity")
 
-# # Plot using seaborn
-# plt.figure(figsize=(8, 6))
-# sns.heatmap(heatmap_data, annot=True, cmap='viridis', linewidths=0.5, cbar_kws={'label': 'Confidence Score'})
-# plt.title("Confidence Heatmap")
-# plt.xlabel("Y-axis")
-# plt.ylabel("X-axis")
-# plt.show()
-
-
-
-##----Hello   !!!!!!
-# 
-# 
-#  
+# Labels and Title
+plt.xlabel("X Coordinate")
+plt.ylabel("Y Coordinate")
+plt.title("Scatter Plot of Reward Intensity")
+plt.legend()
+plt.show()
