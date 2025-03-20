@@ -31,6 +31,11 @@ import seaborn as sns
 
 import pandas as pd
 import os
+from scipy.io import savemat
+
+output_mat_dir = "/home/csrl/Desktop/ROMAN_experiment/mat_files"
+os.makedirs(output_mat_dir, exist_ok=True)
+
 
 output_dir = "/home/csrl/Desktop/ROMAN_experiment/Outp"
 os.makedirs(output_dir, exist_ok=True)
@@ -727,9 +732,7 @@ if __name__ == "__main__":
     #___MEXRI EDW PAEI SE MIA TYXAIA ARXIKH THESH
 
 
-    phi0   = np.pi/6
     
-    theta0 = np.pi/3
   
     dt        = 0.02     # 20 ms ()
     seg_time  =5     # time (sec) for point to point movement with quintic (5th order) profile
@@ -773,164 +776,205 @@ if __name__ == "__main__":
     # theta_combinations = theta_grid.flatten()
 
     # CMA-ES Optimization with Multiple Experiments
+    for experiment_index in range(5):
+        phi0   = np.pi/6
+        theta0 = np.pi/3
 
+        input('When UR ready :)...please press "Enter"...')
 
-    input('When UR ready :)...please press "Enter"...')
-
-    
-
-    #num_of_experiments = 1#len(phi_combinations)
-
-
-    # for exper in range(num_of_experiments):
-    initial_parameters = np.array([phi0,theta0])
-    cma_bounds = np.array([[np.pi/8,np.pi/2-0.3], [np.pi/8,np.pi/2-0.3]])
-    steps = 0.01*np.ones(2)  # Continuous dimensions only
-
-    population_size =6
-    optimizer = CMAwM(
-        mean=initial_parameters,
-        sigma=6,#2,
-        bounds=cma_bounds,
-        steps=steps,
-        population_size=population_size
-    )
-
-    cma_points = [initial_parameters]
-    all_desired_positions = [p_init_robot]
-    best_experiment_value = -np.Inf
-    best_experiment_params = None
-
-
-    x_cur=initial_parameters
-
-    # --- Optimization Loop ---
-
-    best_results =[]
-    step_count = 0
-
-    for i in range (5): # Ektelw 5 epochs (h alliws iterations)
-        solutions = [] 
-        solutions_for_cma_manipulation  = [] 
-    # 7) Κυρίως βρόχος μέχρι total_time
-        for its in range(population_size): #----------------
-            if (not stop_signal):
-                # 1) Ζητάς μια νέα υποψήφια λύση από το CMA-ES
-                
-                x_for_eval, x_for_tell = optimizer.ask()
-                print(x_for_eval)
-                phi1 = x_for_eval[0]
-                theta1 = x_for_eval[1]
         
-                
-                # Reset simulation time, if applicable
-                t_local = 0.0
-                t_start = rtde_c.initPeriod()
-                while t_local < seg_time and not stop_signal:
-                   
-                    time_start = time.time()
-                    t = t_local
-                    #t += dt
-                    # 1) Current Robot State
-                    q = np.array(rtde_r.getActualQ())
-                    J = UR_robot.jacob0(q)
-                    Jinv = np.linalg.pinv(J)
-                    g_current = UR_robot.fkine(q)
-                    p_temp = g_current.t
-                    R_current = g_current.R
 
-                    # 2) Desired Pose with Look-at-Center Orientation
-                    T_des, v_des, w_des = desired_pose_polar_with_look_at(t)
-                    p_des = T_des[:3, 3]
-                    R_des = quatIntegrate(T_des[:3, :3], w_des, dt)
-                    # R_des = T_des[:3, :3]
+        #num_of_experiments = 1#len(phi_combinations)
 
 
-                    # 3) 6D Error
+        # for exper in range(num_of_experiments):
+        initial_parameters = np.array([phi0,theta0])
+        cma_bounds = np.array([[np.pi/8,np.pi/2-0.3], [np.pi/8,np.pi/2-0.3]])
+        steps = 0.01*np.ones(2)  # 
+
+        population_size =6
+        optimizer = CMAwM(
+            mean=initial_parameters,
+            sigma=6,#2,
+            bounds=cma_bounds,
+            steps=steps,
+            population_size=population_size
+        )
+
+        
+
+        cma_points = [initial_parameters]
+        all_desired_positions = [p_init_robot]
+        best_experiment_value = -np.Inf
+        best_experiment_params = None
+
+
+        x_cur=initial_parameters
+
+        # --- Optimization Loop ---
+        # Prepare a list to store sigma values for visualization
+        partial_reward_logs=[]
+        phi1_logs =[]
+        theta1_logs =[]
+        phi_logs = []
+        theta_logs =[]
+        cmaes_sigma_log =[]
+        covariance_log=[]
+        visualize = []
+        best_results =[]
+        step_count = 0
+
+        for i in range (5): # Ektelw 5 epochs (h alliws iterations)
+            solutions = [] 
+            solutions_for_cma_manipulation  = [] 
+        # 7) Κυρίως βρόχος μέχρι total_time
+            for its in range(population_size): #----------------
+                if (not stop_signal):
+                    # 1) Ζητάς μια νέα υποψήφια λύση από το CMA-ES
                     
-                    e[:3] = p_des - p_temp
-                    e[3:] = logError(R_des, R_current, getMin=True)
+                    x_for_eval, x_for_tell = optimizer.ask()
+                    print(x_for_eval)
+                    phi1 = x_for_eval[0]
+                    theta1 = x_for_eval[1]
+            
+                    theta1_logs.append(theta1)
+                    phi1_logs.append(phi1)
 
+                    # Reset simulation time, if applicable
+                    t_local = 0.0
+                    t_start = rtde_c.initPeriod()
+                    while t_local < seg_time and not stop_signal:
                     
-                    # 4) Command (6D feedforward - error correction)
-                    # correction = kClik @ e
-                    correction = np.concatenate([v_des, w_des]) + kClik @ e
+                        time_start = time.time()
+                        t = t_local
+                        #t += dt
+                        # 1) Current Robot State
+                        q = np.array(rtde_r.getActualQ())
+                        J = UR_robot.jacob0(q)
+                        Jinv = np.linalg.pinv(J)
+                        g_current = UR_robot.fkine(q)
+                        p_temp = g_current.t
+                        R_current = g_current.R
 
-                    # 5) joint velocity
-                    qdot = Jinv @ correction
+                        # 2) Desired Pose with Look-at-Center Orientation
+                        T_des, v_des, w_des = desired_pose_polar_with_look_at(t)
+                        p_des = T_des[:3, 3]
+                        R_des = quatIntegrate(T_des[:3, :3], w_des, dt)
+                        # R_des = T_des[:3, :3]
 
-                    # 6) command speed
-                    rtde_c.speedJ(qdot, 1.0, dt)
-                
 
-                    # (vi) Partial cost (Kalman + detections)
-                    optimization_time_start=time.time()
-                    partial_reward = objective_function_with_kalman(currentParams)######### edw thelei allagh.....8a prepei na einai to current phi,theta
-                    optimization_time.append(time.time()-optimization_time_start)
-                    # print("t_local =",t_local)
-
-                    
-                    if partial_reward >best_experiment_value:
-                        best_experiment_value = partial_reward
-                        best_experiment_params = currentParams
+                        # 3) 6D Error
                         
-                        best_results.append((currentParams, partial_reward)) 
-                        filename = os.path.join(output_dir, f"PHITHETA_{best_experiment_params[0],best_experiment_params[1],partial_reward}.png")
-                        cv2.imwrite(filename, detector.get_last_frame())
+                        e[:3] = p_des - p_temp
+                        e[3:] = logError(R_des, R_current, getMin=True)
 
-                    step_count += 1
-                    if (step_count%40 == 0): #Append per dt*population_size
-                        #step_count += 1
-                        solutions_for_cma_manipulation.append((currentParams, partial_reward)) 
                         
+                        # 4) Command (6D feedforward - error correction)
+                        # correction = kClik @ e
+                        correction = np.concatenate([v_des, w_des]) + kClik @ e
+
+                        # 5) joint velocity
+                        qdot = Jinv @ correction
+
+                        # 6) command speed
+                        rtde_c.speedJ(qdot, 1.0, dt)
                     
-                    if (len(solutions_for_cma_manipulation)==population_size): #Tell per dt*population_size
-                        
-                        optimizer.tell(solutions_for_cma_manipulation)
-                        solutions_for_cma_manipulation  = [] 
-                        #step_count = 0
-                    
-                #
-                    if stop_signal:
-                        break
-                    rtde_c.waitPeriod(dt)
-                    t_local   += dt
-                    #rtde_c.waitPeriod(dt)
-                    time_end = time.time()
-                    elapsed_time = time_end-time_start
-                    remaining_time = dt -elapsed_time
 
-                    if remaining_time > 0:
-                        time.sleep(dt - elapsed_time)
-                        dt_time = time.time() - time_start
-                        # print("dt_time", dt_time)
-                    else:
-                        dt_time = time.time() - time_start
-                        # print("dt_time", dt_time)
-                        
-                    loop_time.append(elapsed_time)
+                        # (vi) Partial cost (Kalman + detections)
+                        optimization_time_start=time.time()
+                        partial_reward = objective_function_with_kalman(currentParams)######### edw thelei allagh.....8a prepei na einai to current phi,theta
+                        optimization_time.append(time.time()-optimization_time_start)
+                        # print("t_local =",t_local)
 
+                        partial_reward_logs.append(partial_reward)
+
+                        curr_phi, curr_theta = currentParams
+                        phi_logs.append(curr_phi)
+                        theta_logs.append(curr_theta)
+
+                        visualize.append((currentParams, partial_reward))
+                        if partial_reward >best_experiment_value:
+                            best_experiment_value = partial_reward
+                            best_experiment_params = currentParams
+                            
+                            best_results.append((currentParams, partial_reward)) 
+                            filename = os.path.join(output_dir, f"PHITHETA_{best_experiment_params[0],best_experiment_params[1],partial_reward}.png")
+                            cv2.imwrite(filename, detector.get_last_frame())
+
+
+                        step_count += 1
+                        if (step_count%50 == 0): #Append per dt*population_size
+                            #step_count += 1
+                            solutions_for_cma_manipulation.append((currentParams, partial_reward)) 
+                            
+                        
+                        if (len(solutions_for_cma_manipulation)==population_size): #Tell per dt*population_size
+                            
+                            optimizer.tell(solutions_for_cma_manipulation)
+                            solutions_for_cma_manipulation  = [] 
+                            # Log the current sigma value
+                            covariance_log.append(optimizer._cma._C.copy())
+                            cmaes_sigma_log.append(optimizer._cma._sigma.copy())
+                            
+                            
+                            #step_count = 0
+                        
+                    #
+                        if stop_signal:
+                            break
+                        rtde_c.waitPeriod(dt)
+                        t_local   += dt
+                        #rtde_c.waitPeriod(dt)
+                        time_end = time.time()
+                        elapsed_time = time_end-time_start
+                        remaining_time = dt -elapsed_time
+
+                        if remaining_time > 0:
+                            time.sleep(dt - elapsed_time)
+                            dt_time = time.time() - time_start
+                            # print("dt_time", dt_time)
+                        else:
+                            dt_time = time.time() - time_start
+                            # print("dt_time", dt_time)
+                            
+                        loop_time.append(elapsed_time)
+
+                    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                # 7B) Μόλις κλείσει το 50ms segment → CMA-ES
                 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            # 7B) Μόλις κλείσει το 50ms segment → CMA-ES
-            # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                
+                    
 
-                # Μέσο ή άθροισμα κόστους
-                #if step_count > 0:
-                #avg_cost = accumulated_cost / step_count
-                # else:
-                #     avg_cost = 999.0
-                #     print("something went wrong!!!")
+                    # Μέσο ή άθροισμα κόστους
+                    #if step_count > 0:
+                    #avg_cost = accumulated_cost / step_count
+                    # else:
+                    #     avg_cost = 999.0
+                    #     print("something went wrong!!!")
 
 
-                phi0 = currentParams[0]
-                theta0 = currentParams[1]
-                
-            #optimizer.tell(solutions)    
-        
+                    phi0 = currentParams[0]
+                    theta0 = currentParams[1]
+                    
+                #optimizer.tell(solutions)    
+            
+        # Prepare data to save for this experiment
+        experiment_data = {
+            'phi1': phi1_logs,
+            'theta1': theta1_logs,
+            'partial_rewards': partial_reward_logs,
+            'cur_phi': phi_logs,
+            'cur_theta': theta_logs,
+            'cmaes_sigma_log': cmaes_sigma_log,
+            'covariance_log': covariance_log
+        }
+
+         # Save each experiment's data to a separate .mat file
+        mat_file_name = f"experimnt_{experiment_index + 1}.mat"
+        savemat(os.path.join(output_mat_dir, mat_file_name), experiment_data)
+
+        t_local = 0.0
+        rtde_c.speedStop()
     
-    t_local = 0.0
-    rtde_c.speedStop()
     input("fhujdsf")
     best_params, best_reward = max(best_results, key=lambda x: x[1])
     # print(best_params)
@@ -1011,7 +1055,7 @@ if __name__ == "__main__":
 ######################################################**********************************#############################################
 ######################################################**********************************#############################################
 ###
-data = [(round(x, 4), round(y, 4), round(z, 4)) for ((x, y), z) in best_results]
+data = [(round(x, 4), round(y, 4), round(z, 4)) for ((x, y), z) in visualize]
 
 # Convert to DataFrame
 df = pd.DataFrame(data, columns=['X', 'Y', 'Reward'])
@@ -1037,5 +1081,28 @@ cbar.set_label("Reward Intensity")
 plt.xlabel("X Coordinate")
 plt.ylabel("Y Coordinate")
 plt.title("Scatter Plot of Reward Intensity")
+plt.legend()
+plt.show()
+
+
+det_values = [np.linalg.det(C) for C in covariance_log]
+
+# Option A: Plot the raw determinant
+plt.plot(det_values, label='det(Covariance)')
+plt.xlabel('Iteration')
+plt.ylabel('Determinant')
+plt.title('Det(C) over Iterations')
+plt.grid(True)
+plt.legend()
+plt.show()
+
+sigma_values = [sigma for sigma in cmaes_sigma_log]
+
+# Option A: Plot the raw determinant
+plt.plot(sigma_values, label='sigma_values')
+plt.xlabel('Iteration')
+plt.ylabel('Sigma')
+plt.title('sigma')
+plt.grid(True)
 plt.legend()
 plt.show()

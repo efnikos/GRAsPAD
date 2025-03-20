@@ -78,7 +78,7 @@ class TomatoDetector:
         self.process_times = []
 
         # Define colors for keypoints
-        self.keypoint_colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
+        self.keypoint_colors = [(255, 255, 0), (255, 255, 0), (255, 255, 0)]
 
         # Variable to store the last keypoint set (each keypoint is a dict with 3D coordinates and confidence)
         self.last_keypoint_set = None
@@ -199,8 +199,9 @@ class TomatoDetector:
                             "confidence": confidence  # Assuming high confidence for hand keypoints
                         }
                         # Draw keypoints on the image
+                        confidence_str = f"{confidence:.2f}"
                         cv2.circle(color_image, (px, py), 5, (0, 255, 255), -1)
-                        cv2.putText(color_image, name, (px + 10, py), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                        cv2.putText(color_image, confidence_str, (px + 10, py), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
                         # print(f"{name} 3D Position: {point_3d}")
 
         # YOLO Predictions
@@ -213,16 +214,15 @@ class TomatoDetector:
                 keypoints = det.cpu().numpy()
                 points_3d = []
                 x1, y1, x2, y2 = map(int, box.cpu().numpy())
-                cv2.rectangle(color_image, (x1, y1), (x2, y2), (0, 255, 255), 2)
-                cv2.putText(color_image, "tomato", (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                # cv2.rectangle(color_image, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                # cv2.putText(color_image, "tomato", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
                 object_size = self.calculate_object_size(x1, x2, y1, y2, depth_frame, depth_intrinsics)
                 if object_size is not None:
                     object_radius = object_size / 2
                     #print(f"Bounding box length: {object_radius:.2f} m")
-                    cv2.putText(color_image, f"L:{object_radius:.2f}", (x1, y1 + 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    cv2.putText(color_image, f"R:{object_radius:.2f}", (x1, y1 + 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
                 else:
                     continue
 
@@ -239,8 +239,8 @@ class TomatoDetector:
                                 "confidence": kp_conf
                             }
                             cv2.circle(color_image, (kp_x, kp_y), 5, color, -1)
-                            cv2.putText(color_image, f"conf: {kp_conf:.2f}", (kp_x, kp_y - 10),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                            cv2.putText(color_image, f" {kp_conf:.2f}", (kp_x, kp_y - 10),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
                 # print(f"Keypoint Dict: {current_keypoints}")
 
