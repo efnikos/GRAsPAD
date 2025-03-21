@@ -295,7 +295,9 @@ def objective_function_with_kalman(params):
     # division-based log form
     #info_gain = abs(np.log(det_prior/det_post))#because cmaes minimizes
     info_gain = np.log((det_prior/det_post))#because cmaes minimizes
-    rewrd = info_gain
+    rewrd = info_gain 
+
+    rewrd = rewrd #+ 100/(pow(pixelCoordstag0[0] - image_width/2 , 2) + pow(pixelCoordstag0[1] - image_height/2 , 2) )
     # rewrd= np.linalg.det(P)
     return rewrd
 
@@ -776,10 +778,14 @@ if __name__ == "__main__":
     # theta_combinations = theta_grid.flatten()
 
     # CMA-ES Optimization with Multiple Experiments
-    for experiment_index in range(5):
+    for experiment_index in range(1):
         phi0   = np.pi/6
         theta0 = np.pi/3
 
+
+        # phi0   = 0.8
+        # theta0 = 0.5
+        
         input('When UR ready :)...please press "Enter"...')
 
         
@@ -956,7 +962,7 @@ if __name__ == "__main__":
                     theta0 = currentParams[1]
                     
                 #optimizer.tell(solutions)    
-            
+        best_params, best_reward = max(best_results, key=lambda x: x[1])    
         # Prepare data to save for this experiment
         experiment_data = {
             'phi1': phi1_logs,
@@ -965,7 +971,9 @@ if __name__ == "__main__":
             'cur_phi': phi_logs,
             'cur_theta': theta_logs,
             'cmaes_sigma_log': cmaes_sigma_log,
-            'covariance_log': covariance_log
+            'covariance_log': covariance_log,
+            'best_results':best_params,
+            'best_reward':best_reward
         }
 
          # Save each experiment's data to a separate .mat file

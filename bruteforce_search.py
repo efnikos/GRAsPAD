@@ -30,7 +30,26 @@ import grasp_detector
 import seaborn as sns
 from scipy.special import gamma
 import pandas as pd
+from scipy.io import savemat
 import os
+
+
+#approx 30 minutes
+
+output_mat_dir = "/home/csrl/Desktop/ROMAN_experiment/mat_files"
+os.makedirs(output_mat_dir, exist_ok=True)
+
+# Data storage dictionary (to accumulate all experiments)
+all_experiments_data = {
+    'phi': [],  # Store all phi values
+    'theta': [],  # Store all theta values
+    'partial_rewards': [],  # Store all partial rewards
+    'best_experiment_value': [],  # Store all best experiment values
+    'best_experiment_params_phi': [],  # Best phi values per experiment
+    'best_experiment_params_theta': []  # Best theta values per experiment
+    
+}
+
 
 output_dir = "/home/csrl/Desktop/ROMAN_experiment/Outp"
 os.makedirs(output_dir, exist_ok=True)
@@ -782,8 +801,8 @@ if __name__ == "__main__":
 
     # phi_range = np.linspace(np.pi / 5, np.pi / 3, 7)   
     # theta_range = np.linspace(0.0, 2 * np.pi - (1/5)* 2 * np.pi, 7)
-    phi_range = np.linspace(np.pi/8+0.001,np.pi/2-0.3-0.001, 15)   
-    theta_range = np.linspace(np.pi/8+0.001,np.pi/2-0.3-0.001, 15)
+    phi_range = np.linspace(np.pi/8+0.001,np.pi/2-0.3-0.001, 20)   
+    theta_range = np.linspace(np.pi/8+0.001,np.pi/2-0.3-0.001, 20)
     phi_grid, theta_grid = np.meshgrid(phi_range, theta_range)
 
     phi_combinations = phi_grid.flatten()
@@ -885,6 +904,14 @@ if __name__ == "__main__":
                     filename = os.path.join(output_dir, f"PHITHETA_{best_experiment_params[0],best_experiment_params[1],partial_reward}.png")
                     cv2.imwrite(filename, detector.get_last_frame())
 
+                curr_phi, curr_theta = currentParams
+
+                all_experiments_data['phi'].append(curr_phi)
+                all_experiments_data['theta'].append(curr_theta)
+                all_experiments_data['partial_rewards'].append(partial_reward)
+                all_experiments_data['best_experiment_value'].append(best_experiment_value)
+                all_experiments_data['best_experiment_params_phi'].append(best_experiment_params[0])
+                all_experiments_data['best_experiment_params_theta'].append(best_experiment_params[1])
 
                 if stop_signal:
                     break
@@ -978,6 +1005,9 @@ if __name__ == "__main__":
     #print(f"time: {ellapsed_time}")
     rtde_c.speedStop()
   
+# Save all the accumulated data to a single .mat file
+mat_file_name = "all_experiments_data.mat"
+savemat(os.path.join(output_mat_dir, mat_file_name), all_experiments_data)
 
 # Plot all three time series
 
