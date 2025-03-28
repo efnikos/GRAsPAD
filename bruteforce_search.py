@@ -77,7 +77,6 @@ listener = keyboard.Listener(on_press=on_press)
 listener.start()
 
 detector = grasp_detector.TomatoDetector(model_path='models/keypoints_new.pt', show_frame=False)
-#detector.run()
 
 
 global P,KALMAN_GAIN,H,Q,F, frame
@@ -92,24 +91,9 @@ F = np.eye(18)
 ##############################################################################
 #  objective_function
 ##############################################################################
-
-z = np.zeros(18)
+x = np.zeros((18,1))
+z = np.zeros((18,1))
 measurement_uncertainty  = np.eye(18)
-
-
-def ellipsoid_volume():
-    """Computes volume of an n-dimensional ellipsoid given covariance matrix P"""
-    global P
-    n = P.shape[0]  # Dimension (should be 18 in this case)
-    det_P = np.linalg.det(P)
-
-    # Ensure determinant is positive to avoid numerical errors
-    if det_P <= 0:
-        return 0
-
-    volume = (np.pi ** (n / 2) / gamma(n / 2 + 1)) * np.sqrt(det_P)
-    return volume
-
 
 def objective_function_with_kalman(params):
     
@@ -135,8 +119,6 @@ def objective_function_with_kalman(params):
         # Transform the 3D point to world coordinates using g0c
         g0c = g0e@gec
 
-
-        #z,measurement_uncertainty=give_me_detections(cur_phi,cur_theta)
         keypoints = detector.get_last_keypoint_set()  # Retrieve the latest keypoint set
         
         if keypoints:
@@ -148,13 +130,9 @@ def objective_function_with_kalman(params):
                 z[idx+6] = p_te[1]         # This gives you the 3D coordinates, e.g., [x, y, z]
                 z[idx+12] = p_te[2]         # This gives you the 3D coordinates, e.g., [x, y, z]
 
-                # # Find the diagonal position to update
-                # diag_index = idx * 6  # For idx=0, it's the first 3 positions; for idx=1, the next 3 positions, etc.
-                # # Fill the corresponding diagonal block with the keypoint's confidence
-                # np.fill_diagonal(measurement_uncertainty[diag_index:diag_index+6, diag_index:diag_index+6], 1-kp["confidence"])
-                # Compute and fill the correct diagonal positions
+        
                 diag_indices = [idx, idx + 6, idx + 12]
-                # np.fill_diagonal(measurement_uncertainty[diag_indices, diag_indices], 1 - kp["confidence"])
+            
                 measurement_uncertainty[diag_indices, diag_indices] = 1 - kp["confidence"]
                 # print(measurement_uncertainty)
                 #print(f'idx: {idx}, confidence: {kp["confidence"]}')
@@ -171,28 +149,19 @@ def objective_function_with_kalman(params):
 
         iterat = 1
         if iterat == 1:
-            x = np.array([-0.02, -0.02, -0.01,-0.025, -0.026, -0.018, -0.61, -0.68,-0.67,-0.57, -0.62,-0.65, 0.38,0.4,0.47,0.4,0.45,0.49]).T
+            x = np.array([-0.02, -0.02, -0.01,-0.025, -0.026, -0.018, -0.61, -0.68,-0.67,-0.57, -0.62,-0.65, 0.38,0.4,0.47,0.4,0.45,0.49]).reshape((18, 1))
             
-        # # Set camera position
-        
-        # X_cam = p_des[0]
-        # Y_cam = p_des[1]
-        # Z_cam =  p_des[2]
-        #print('APOSTASH',(X_cam-pivot_x)**2+(Y_cam-pivot_y)**2+(Z_cam-pivot_z)**2-radius**2)
-        # Update camera extrinsics or other parapi/2meters as needed
-        # c_extr = current_extrinsic(X_cam, Y_cam, Z_cam, pivot_x, pivot_y, pivot_z)
-
         # Initialize variables
         # x_hat = np.array([-0.77, -0.77, -0.77, -0.24, -0.44, -0.34,0.34,0.34,0.5]).T
         x_hat = x.copy()
 
-        projected_point_0 = np.linalg.inv(T_des) @ np.hstack((x_hat[[0, 6, 12]],[1]))
-        projected_point_1 = np.linalg.inv(T_des) @ np.hstack((x_hat[[1, 7, 13]],[1]))
-        projected_point_2 = np.linalg.inv(T_des) @ np.hstack((x_hat[[2, 8, 14]],[1]))
+        projected_point_0 = np.linalg.inv(T_des) @ np.vstack((x_hat[[0, 6, 12]],[1]))
+        projected_point_1 = np.linalg.inv(T_des) @ np.vstack((x_hat[[1, 7, 13]],[1]))
+        projected_point_2 = np.linalg.inv(T_des) @ np.vstack((x_hat[[2, 8, 14]],[1]))
 
-        projected_point_3 = np.linalg.inv(T_des) @ np.hstack((x_hat[[3, 9, 15]],[1]))
-        projected_point_4 = np.linalg.inv(T_des) @ np.hstack((x_hat[[4, 10, 16]],[1]))
-        projected_point_5 = np.linalg.inv(T_des) @ np.hstack((x_hat[[5, 11, 17]],[1]))
+        projected_point_3 = np.linalg.inv(T_des) @ np.vstack((x_hat[[3, 9, 15]],[1]))
+        projected_point_4 = np.linalg.inv(T_des) @ np.vstack((x_hat[[4, 10, 16]],[1]))
+        projected_point_5 = np.linalg.inv(T_des) @ np.vstack((x_hat[[5, 11, 17]],[1]))
 
         # Project the 3D point onto the 2D pixel plane
         pixelCoordstag0 = K @ projected_point_0[0:3]
@@ -305,6 +274,7 @@ def objective_function_with_kalman(params):
         KALMAN_GAIN = P_pred @ H.T @ np.linalg.inv(S) # Kalman gain
 
         x = x_pred + KALMAN_GAIN @ y                  # Updated state estimate
+        
         P = (np.eye(18) - KALMAN_GAIN @ H) @ P_pred    # Updated estimate covariance
         
         iterat += 1
@@ -312,24 +282,19 @@ def objective_function_with_kalman(params):
         sign1, logdetP_pred = np.linalg.slogdet(P_pred)
         sign2, logdetP_post = np.linalg.slogdet(P)
         
-        # if sign1 <= 0 or sign2 <= 0:
-        #     rewrd = 1e5
-        # else:
-        # info_gain = abs(0.5*(logdetP_pred-logdetP_post))
+       
         
         det_prior = np.linalg.det(P_pred)
         det_post = np.linalg.det(P)
         
         
-        # division-based log form
-        #info_gain = abs(np.log(det_prior/det_post))#because cmaes minimizes
-        info_gain = np.log((det_prior/det_post))#because cmaes minimizes
+        info_gain = np.log((det_prior/det_post))#
         rewrd = info_gain
-        # rewrd= np.linalg.det(P)
+       
         return rewrd
 
     except Exception as e:
-        print(f"Exception in objective function 3: {e}")
+        print(f"Exception in objective function: {e}")
         return -np.inf 
 
     
@@ -469,7 +434,7 @@ def desired_pose_polar_with_look_at(t):
 
     
     R_des, w_des = orientation_look_at_center(t)
-    # print(is_rotation_matrix(R_des,tol=1e-6))#!!!!!!
+    
     # Build homogeneous transform
     T_des = np.eye(4)
     T_des[:3, :3] = R_des
@@ -480,151 +445,6 @@ def desired_pose_polar_with_look_at(t):
 
     return T_des, v_des, w_des
 
-
-def margin_to_uncertainty(margin, low, high):
-    """Example heuristic that clamps decision_margin between low & high."""
-    if margin < low:
-        return 0.0
-    elif margin > high:
-        return 1.0
-    else:
-        return ((margin - low) / (high - low))
-
-
-def give_me_detections(evaluated_phi,evaluated_theta):
-    global frame
-    exit_flag = False
-    
-    # Define target tag IDs
-    target_tags = [0, 1, 2]
-
-    while not exit_flag:
-
-        frames = pipeline.wait_for_frames()
-        aligned_frames = align.process(frames)
-        depth_frame = aligned_frames.get_depth_frame()
-        color_frame = aligned_frames.get_color_frame()
-        
-        if not depth_frame or not color_frame:
-            continue  # Skip frame if either stream is unavailable
-
-        # Convert color frame to numpy array and grayscale
-        frame = np.asanyarray(color_frame.get_data())
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        frame_height, frame_width = frame_gray.shape
-
-        # Detect AprilTags in the grayscale image
-        detected_tags = {}  # Will store detected centers: {tag_id: (center_x, center_y)}
-        tags = detector.detect(frame_gray)
-        
-        for tag in tags:
-            if tag.tag_id in target_tags:
-                # Compute the center of the tag from its corners
-                center = np.mean(tag.corners, axis=0).astype(int)
-                center_x, center_y = int(center[0]), int(center[1])
-                detected_tags[tag.tag_id] = ((center_x, center_y), tag.decision_margin)
-            
-                
-                # Draw the bounding box (green lines) around the detected tag
-                for idx in range(len(tag.corners)):
-                    pt1 = tuple(tag.corners[idx - 1, :].astype(int))
-                    pt2 = tuple(tag.corners[idx, :].astype(int))
-                    cv2.line(frame, pt1, pt2, (0, 255, 0), 2)
-                # Mark the center in red
-                cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
-        
-        # Prepare a dictionary to hold information for each target tag
-        tag_positions = {}
-        
-        # For each target tag, use detected center if available; otherwise assign a random center.
-        for tag_id in target_tags:
-            if tag_id in detected_tags:
-                (center_x, center_y), decision_margin = detected_tags[tag_id]
-            else:
-                # Assign a random center within the frame dimensions
-                center_x = np.random.randint(0, frame_width)
-                center_y = np.random.randint(0, frame_height)
-                decision_margin = 0        #!!!!-----------------high uncertainty
-                # Mark the random center in blue so you know it wasn't detected
-            cv2.circle(frame, (center_x, center_y), 5, (255, 0, 0), -1)
-
-
-            decision_margin=margin_to_uncertainty(decision_margin, low=0, high=100)
-            # Get the depth value (in meters) at the chosen center coordinate
-            depth_value = depth_frame.get_distance(center_x, center_y)
-
-            if depth_value>4.0 or depth_value<0 or math.isnan(depth_value):
-                depth_value = 0.4
-
-            # Deproject the pixel to a 3D point in the camera coordinate system
-            p_camera = np.ones(4)
-            p_camera[0:3] = ph.back_project([center_x, center_y], depth_value)
-            q_ = np.array(rtde_r.getActualQ())
-            g_ = UR_robot.fkine(q_)
-            p_ = g_.t
-            Ri = g_.R
-            g0e = np.identity(4)
-            g0e[0:3,0:3] = Ri.copy()
-            g0e[0:3,3] = p_.copy()
-            # Transform the 3D point to world coordinates using g0c
-            g0c = g0e@gec
-            p_te = g0c @ p_camera
-            p_world = p_te[0:3]
-            
-            ###--------------------------------------------Deproject the pixel sol2-------------------------------
-
-            # color_profile = profile.get_stream(rs.stream.color)
-            # depth_intrinsics = color_profile.as_video_stream_profile().get_intrinsics()
-
-            # # Deproject the pixel to a 3D point in camera coordinates
-            # p_camera = rs.rs2_deproject_pixel_to_point(depth_intrinsics, [center_x, center_y], depth_value)
-
-            # # Convert to homogeneous coordinates for transformation (assuming g0c is defined)
-            # p_camera_h = np.append(p_camera, 1)  # [x, y, z, 1]
-
-
-            # q_ = np.array(rtde_r.getActualQ())
-            # g_ = UR_robot.fkine(q_)
-            # p_ = g_.t
-            # Rini = g_.R
-            # g0e = np.identity(4)
-            # g0e[0:3,0:3] = Rini.copy()
-            # g0e[0:3,3] = p_.copy()
-
-            # g0c =  g0e @ gec#######################!!!!!!!!!!!!!!!!-----
-            # p_world = np.dot(g0c, p_camera_h)[:3]  # -------------------get the centers of APRILTAGS with respect to WORLD FRAME!!!!!
-            ###--sol2--------
-
-            # Save the computed information for this tag
-            tag_positions[tag_id] = {
-                'center': (center_x, center_y),
-                'depth': depth_value,
-                'p_camera': p_camera,
-                'p_world': p_world,
-                'decision_margin': decision_margin
-            }
-            
-           
-            # cv2.imshow(f"PHI,THETA: {evaluated_phi,evaluated_theta}", frame)
-            # key = cv2.waitKey(1)
-
-            # if key == 27:  # Exit loop when 'Esc' key is pressed
-            #     break
-            if depth_value<2 and depth_value>0.2:
-                exit_flag = True
-                
-            
-    # State Space Matrix
-    uncertainty_apritag0 = tag_positions[0]['decision_margin']
-    uncertainty_apritag1 = tag_positions[1]['decision_margin']
-    uncertainty_apritag2 = tag_positions[2]['decision_margin']
-
-    p_world_apritag0 = tag_positions[0]['p_world']
-    p_world_apritag1 = tag_positions[1]['p_world']
-    p_world_apritag2 = tag_positions[2]['p_world']
-    POSIT = np.array([p_world_apritag0[0], p_world_apritag0[1], p_world_apritag0[2],p_world_apritag1[0], p_world_apritag1[1], p_world_apritag1[2],p_world_apritag2[0], p_world_apritag2[1], p_world_apritag2[2]]).T
-    Uncert = np.diag(np.array([uncertainty_apritag0, uncertainty_apritag1, uncertainty_apritag2, uncertainty_apritag0, uncertainty_apritag1, uncertainty_apritag2,uncertainty_apritag0, uncertainty_apritag1, uncertainty_apritag2]))
-    return POSIT, Uncert
 
 ##############################################################################
 # MAIN SCRIPT
@@ -642,22 +462,6 @@ p_center_y = p_center[1]
 p_center_z = p_center[2]
 radius   = 0.25
 
-# ------------------Initialize RealSense D415 pipeline------------------------------
-
-# pipeline = rs.pipeline()
-# config = rs.config()
-# config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-# config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-# # Create an align object (aligns depth to color stream)
-# align = rs.align(rs.stream.color)
-# # Start the pipeline
-# profile = pipeline.start(config)
-
-# AprilTag Detector Initialization
-# detector = Detector(families="tag36h11")
-# color_stream_profile = profile.get_stream(rs.stream.color)
-# video_profile = color_stream_profile.as_video_stream_profile()
-# intrinsics = video_profile.get_intrinsics()  # rs.intrinsics structure
 
 
 Rec = np.identity(3)
@@ -758,9 +562,6 @@ if __name__ == "__main__":
     g0c =  g0e @ gec#######################!!!!!!!!!!!!!!!!-----
 
 
-    #___MEXRI EDW PAEI SE MIA TYXAIA ARXIKH THESH
-
-
     phi0   = np.pi/6
     
     theta0 = np.pi/3
@@ -842,7 +643,7 @@ if __name__ == "__main__":
         
 
         if (not stop_signal):
-            # 1) Ζητάς μια νέα υποψήφια λύση από το CMA-ES
+            # 1) Ask for cand. sol from CMAwM-ES
             
             
             phi1 = phi_combinations[exper]
@@ -891,7 +692,7 @@ if __name__ == "__main__":
 
                 # (vi) Partial cost (Kalman + detections)
                 optimization_time_start=time.time()
-                partial_reward = objective_function_with_kalman(currentParams)######### edw thelei allagh.....8a prepei na einai to current phi,theta
+                partial_reward = objective_function_with_kalman(currentParams)##
                 optimization_time.append(time.time()-optimization_time_start)
                 # print("t_local =",t_local)
                 visualize.append((currentParams, partial_reward))
@@ -943,7 +744,7 @@ if __name__ == "__main__":
     print("Progress (%): ",100)    
     t_local = 0.0
     rtde_c.speedStop()
-    input("Press 'Enter' gia Na Paw Sthn Optimal Pose")
+    input("Press 'Enter' to go to the Optimal Pose")
     best_params, best_reward = max(best_results, key=lambda x: x[1])
     # print(best_params)
     phi1 = best_params[0]
@@ -1008,57 +809,6 @@ if __name__ == "__main__":
 # Save all the accumulated data to a single .mat file
 mat_file_name = "all_experiments_data.mat"
 savemat(os.path.join(output_mat_dir, mat_file_name), all_experiments_data)
-
-# Plot all three time series
-
-# plt.plot(optimization_time, label="optimization_time", linewidth=2)
-# plt.plot(detector.get_process_time(), label="detection time", linewidth=2)
-# plt.plot(loop_time, label="loop time", linewidth=2)
-
-# # Add legend
-# plt.legend()
-
-# # Show grid
-# plt.grid(True)
-
-# # Show the plot
-# plt.show()
-######################################################**********************************#############################################
-######################################################**********************************#############################################
-###
-
-
-
-# Convert to DataFrame
-# df = pd.DataFrame(data, columns=['X', 'Y', 'Reward'])
-
-# # Aggregate duplicate (X, Y) values by averaging rewards (change to max/min if needed)
-# df = df.groupby(['X', 'Y'], as_index=False)['Reward'].mean()
-
-# df['Reward'].replace([-np.inf], 0, inplace=True)
-
-# # Pivot table for heatmap format
-# heatmap_data = df.pivot(index='X', columns='Y', values='Reward')
-
-# # Convert index and column names to formatted strings to ensure precision in display
-# heatmap_data.index = [f"{x:.4f}" for x in heatmap_data.index]
-# heatmap_data.columns = [f"{y:.4f}" for y in heatmap_data.columns]
-
-# # Plot using seaborn with colors only (no text inside)
-# plt.figure(figsize=(10, 8))
-# sns.heatmap(heatmap_data, annot=True, cmap='viridis', 
-#             linewidths=0.5, cbar_kws={'label': 'Confidence Score'})
-
-# plt.title("Reward Heatmap")
-# plt.xlabel("Y-axis")
-# plt.ylabel("X-axis")
-
-# # Rotate axis labels for better readability
-# plt.xticks(rotation=45)
-# plt.yticks(rotation=0)
-
-# plt.show()
-
 
 
 
